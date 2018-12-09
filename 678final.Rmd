@@ -1,0 +1,608 @@
+---
+title: "MA 678 Midterm Project - Boston Airbnb"
+author: "Shiyu Zhang"
+date: "November, 2018"
+output:
+  pdf_document
+
+---
+
+
+#A. Abstract 
+
+The main objective of this project is to study the important factors that may have a significant impact on the ratings and price of Airbnb listing properties. The potential implication of this study is to provide suggestion for existing and potential properties owners to have a better understanding of ratings, as well as for travelers to choose a property that best fit their need.
+
+#B. Project Background 
+
+I have been using Airbnb for over three years and it has become a popular way of travelling. I have witness Airbnb develop from an unknown website to the most popular travelling website during the past several years. Many people choose Airbnb instead of hotels not only for its lower price and convenient location, but also for its humanness – travelers are able to make connections with people from all around the world. What’s more, travelers are provided with more unique options compare to hotels - houses, condos, apartments, castles, houseboats, tree houses, barns, mansions, even caves! Therefore, these unique properties of Airbnb inspired me to explore more about it. For example, what the factors may have an impact on the ratings, or, what is the relationship between the occupancy rate and the neighborhood of an Airbnb apartment, etc. 
+
+
+#C. Dataset Information
+
+In this project, I combined two datasets - the Airbnb dataset in Boston area (http://tomslee.net/ airbnb-data-collection-get-the-data) and the crime incident dataset (https://data.boston.gov/dataset/ crime-incident-reports-august-2015-to-date-source-new-system) for the analysis. The data include the following information: 
+(1) room_id: A unique number identifying an Airbnb listing. 
+(2)  host_id: A unique number identifying an Airbnb host. 
+(3)  room_type: One of “Entire home/apt”, “Private room”, or “Shared room” 
+(4)  borough: A sub-region of the city or search area for which the survey is carried 
+out. For some cities such as Boston, there is no borough information. 
+(5)  neighborhood: a sub-region of the city or search area for which the survey is carried out. A neighborhood is smaller than a borough. 
+(6)  reviews: The number of reviews that a listing has received. The number of reviews can be used to estimate the number of visits. However, such estimation may not be reliable for an individual listing (especially as reviews occasionally vanish from the site). 
+(7)  overall_satisfaction: The average rating that the owner of the property has received. 
+(8)  accommodates: The number of guests a listing can accommodate. 
+(9)  bedrooms: The number of bedrooms a listing offers. 
+(10) price: The price (in $US) for a night stay. In early surveys, there may be some values that were recorded by month. 
+(11) minstay: The minimum stay for a visit, as posted by the host.
+(12) latitude and longitude: The latitude and longitude of the listing as posted on Airbnb web.
+(13) last_modified: the date and time that the values were read from the Airbnb.
+
+
+#D. Data Cleaning and Methodology for Models
+```{r,message=FALSE,warning=FALSE}
+library(dplyr)
+library(esquisse)
+library(ggplot2)
+library(sqldf)
+library(tidyr)
+library(data.table)
+library(arm)
+library(knitr)
+library(plyr)
+library(leaflet)
+#import data 
+Boston.airbnb<-read.csv("tomslee_airbnb_boston_0649_2016-11-21.csv")
+# replace all N/A with 0 
+Boston.airbnb[is.na(Boston.airbnb)] <- 0
+# Remove unrelevant columns
+Boston.data<-Boston.airbnb[, c(-4,-9)]
+#remove 0 review properties
+Boston.data<-filter(Boston.data, reviews >0)
+Boston.data<-filter(Boston.data, overall_satisfaction >0)
+```
+
+
+# E. Dataset Structure & Overview 
+After the data cleaning process, the new dataset’s structure is as follows: 
+
+## Properties Location Overview
+
+```{r setup, inclue=FALSE}
+knitr::opts_chunk$set(echo = TRUE,out.width="0.9\\linewidth",dev="png",fig.align  = 'center')
+
+pal <- colorQuantile(
+  palette = "YlOrRd",
+  domain = Boston.data$price
+)
+leaflet(Boston.data) %>% addTiles() %>%
+  addCircles(lng = ~longitude, lat = ~latitude, weight = 1,
+    popup = ~price, radius = 50,
+    color = ~pal(price), fillOpacity = 1)
+
+```
+
+## Room type overview
+
+```{r, echo=FALSE}
+table(Boston.data$room_type)
+ggplot(data = Boston.data) +
+  aes(x = room_type) +
+  geom_bar(fill = '#0c4c8a') +
+  labs(title = 'Overview of Room Type',
+    x = 'Room type',
+    y = 'Count ') +
+  theme_minimal()
+```
+
+From the output, we can see that in Boston area, entire home/apt is the most common type of properties for rent on the website, then is the private room. Shared room is the least common way on the website.
+
+## Check ratings and number of reviews
+
+```{r, echo=FALSE}
+hist(Boston.data$reviews, main = "Distribution of Reviews", xlab = "Number of reviews")
+
+
+
+
+
+
+
+hist(Boston.data$overall_satisfaction, main = "Distribution of Ratings", xlab = "Ratings")
+
+
+
+
+
+ecdf.rev<-ecdf(Boston.data$reviews) 
+ecdf.rev(50)
+max(Boston.data$reviews)
+```
+
+From the histogram for the distribution of ratings (overall_satisfaction), we can see that most of the
+ratings for Airbnb properties in Boston are above 4.0, the data shows right skewness. The distribution of reviews shows a left skewness.
+From the frequency table we can see that the majority number of reviews are less than 50 in Boston area. There are 3127 rooms in our data after cleaning, from the output, 84.9% of total Airbnb rooms have less than 50 reviews, while the maximum reviews for a room is 421.
+
+
+#F. Data Visualization 
+
+## Visualize relationship between overall satisfactions and number of reviews
+
+```{r, echo=FALSE}
+ggplot(data=Boston.data, aes(x=overall_satisfaction, y=reviews))+geom_jitter()+xlab("Ratings")+ylab("Reviews")
+
+```
+
+Based on these output, we can tell that in general, higher ratings tend to have more reviews.
+
+
+## Distribution of room type 
+
+```{r, echo=FALSE}
+p <- ggplot(data=Boston.data, aes(x=factor(1), fill = factor(room_type))) + geom_bar(width = 1)
+pp1 <- p + coord_polar(theta = "y") + ggtitle("Room Type Distribution in Boston") + labs(x="Room Type",y="Count") + theme(plot.title = element_text(size=12))
+print(pp1)
+```
+
+
+As we can tell from the pie chart, the entire home/apt has the majority proportion of the whole room types. Private room
+comes the next, and shared room has the least proportion among all the room types.
+
+## Explore Relationship Between Price per Person and Ratings & Room type
+
+After I explored the distribution of the room type, I took a further step to explore the relationship between price per person and ratings & room type. I add one new column called “ price per person” into my previous dataset, because the price is different when it comes to different room type, by introducing price per person, the variable became more comparable. 
+
+```{r}
+Boston.data$priceperperson <- (Boston.data$price)/(Boston.data$accommodates)
+a1 <- aggregate( priceperperson ~ room_type+overall_satisfaction, Boston.data, mean )
+a1 <- as.data.frame(a1)
+names(a1) <- c("room_type","ratings","priceperperson")
+ggplot(data=a1,aes(x=priceperperson,y=ratings))+geom_line()+facet_wrap(.~room_type)
+ggplot(data=a1,aes(x=ratings,y=priceperperson))+geom_bar(stat="identity")+facet_wrap(.~room_type)
+kable(a1, caption = "Average Price by Room Type")
+
+
+```
+
+From the two output, we can tell that for different room type, for example, for entire home/apt, the most ratings are 3.5. For private room, ratings 3 is the most common one and ro the shared room, ratings 4 is more common. So we can tell from the graph that ratings are somehow related with the room type, i will explore further later in the model part.
+
+```{r, echo=FALSE}
+ggplot(data=Boston.data, aes(x=priceperperson))+
+geom_histogram()+facet_wrap(~neighborhood) + ggtitle("Price per Person in Different Neighborhood")
+```
+
+From the graph, we can see that the price in majority neighborhood ranges from 50 to 100 dollars per person, some preperties in Back Bay could be a little bit more expensive. Most of the properties in Jamaica Plain and Dorchester are 80 dollars per person. 
+
+
+Now we want to explore the relationship between the ratings and properties' location.
+
+## Neighborhood overview
+
+```{r, echo=FALSE,r,message=FALSE,warning=FALSE}
+
+df= count(Boston.data, 'neighborhood')
+pic1 <- ggplot(df, aes(x = reorder(neighborhood, freq), y = freq,fill=neighborhood)) +
+         geom_bar(stat = "identity") +
+  labs(title = 'Overview of Neighborhood',
+    x = 'Neighborhood',
+    y = 'Count ') +
+  theme_minimal()+coord_flip()
+ theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+print(pic1)
+
+```
+
+
+From this bar plot and r output, we can see that the top 5 neighborhood for rent on Airbnb in Boston area are Jamaica Plain, Back Bay, Allston, Dorchester and Beacon Hill. On contrast, Longwood, Leather District, Bay Village, West End and Roxbury are the least popular neighborhood for Airbnb in Boston area.
+We can see that the ratings are highly related to the neighborhood of the properties,
+in order to explore further about reasons behind it, i introduced another dataset - Boston crime incident data.
+dataset source : https://data.boston.gov/dataset/ crime-incident-reports-august-2015-to-date-source-new-system.
+ 
+```{r,message=FALSE,warning=FALSE}     
+crime<-read.csv("crime_incident_reports.csv")
+
+# replace district code with names
+distrName = c(
+A1 = 'Downtown',
+A15= 'Charlestown',
+A7= 'East Boston',
+B2= 'Roxbury',
+B3= 'Mattapan',
+C6= 'South Boston',
+C11= 'Dorchester',
+D4= 'South End',
+D14= 'Brighton',
+E5= 'West Roxbury',
+E13= 'Jamaica Plain',
+E18= 'Hyde Park',
+HTU= 'Human Traffic Unit'
+)
+crime$ReptDistrName = as.factor(distrName[as.character(crime$DISTRICT)])
+crime$DISTRICT = NULL
+
+data.crime=na.omit(crime)
+dff2= count(data.crime, 'ReptDistrName')
+
+pic2 <- ggplot(dff2, aes(x = reorder(ReptDistrName, freq), y = freq, fill = ReptDistrName)) +
+         geom_bar(stat = "identity") +
+  labs(title = 'Overview of Neighborhood',
+    x = 'Neighborhood',
+    y = 'Count ') +
+  theme_minimal()+coord_flip()
+ theme(axis.text.x = element_text(angle = 60, hjust = 1))
+
+print(pic2)
+
+```
+
+Compared to the two graphs above, we can see that ratings is highly related to the neighborhood of the 
+property, more specific, in the neighborhood where the crime rates are lower, the ratings tends to be higher."
+
+
+To sum up, we can say that ratings is highly related to number of reviews, price , accomodates, minimum stays
+and the location of the property. It has a moderate relationship with the room type."
+
+
+# G. EDA
+
+Prior to the application for multilevel model, I think doing some initial EDA is helpful for 
+a better understanding of relationship between independent variables and dependents variables.
+
+## 1.Distribution of ratings in different districts
+```{r, echo=FALSE}
+
+ggplot(data=Boston.data, aes(x=overall_satisfaction))+
+geom_histogram()+facet_wrap(~neighborhood) + ggtitle("Weighted Rating distribution per district")
+
+```
+
+As we can see from the output, it is more clear that Bay Village,Leather District, Longwood Medical area,
+west end and west roxbury have very few reviews or ratings compared to the crime plot i showed in the
+previous part. we can say that the area where has more crime tend to have few ratings/ reviews.
+On the other hand, Allston, Back Bay, Jamacia Plain and South End have most ratings/ reviews.
+
+
+
+## 2. Check multicollinearity between predictors 
+
+### Correlation between reviews, overall_satisfaction, accommodates, price and minstay
+```{r}
+correlation<-cor(Boston.data[,c(5,6,7,8,9)]) 
+symnum(correlation)
+```
+
+From the output, we can see that the it is fine to do the model since there is no mark
+that shows the variables are problematic.
+
+
+-------------------------------------------------------------------------------
+## 3.Check Model Fit and Build Model 
+```{r}
+# Scale price from dataset 
+Boston.data$price<-scale(Boston.data$price, center = TRUE, scale = TRUE)
+
+```
+
+###(1) No random effect
+
+#### Model 1 : ratings(overall_satisfaction as outcome variable)
+```{r}
+no_1<-lm(overall_satisfaction ~ room_type+reviews+accommodates+minstay+price, data=Boston.data)
+summary(no_1)
+
+```
+
+
+Based on the output, we can see that only the accommodates and price are statistically 
+significant from zero,however, i think it is still meaningful to keep the rest of the variables 
+because it is still meaningful in reality.especially minstay factor, it should have great 
+influence on the ratings. 
+
+
+with each unit increase in reviews, the ratings (overall_satisfaction) increase by 0.0002. 
+One unit increase in accommodates, the rating decrease by 0.013. One unit increase in mininum stays, 
+the rating decrease by 0.007, which is meaningful in reality becasue the minimum stays sometimes 
+keep out the customers who don't meet the minimum stay requirements. For the price factor, 
+with each unit increase in price, the rating would decrease by 0.049.
+
+
+##### Model 2 : price as outcome variable
+```{r}
+no_2<-glm(price ~ room_type+reviews+accommodates+minstay+overall_satisfaction, data=Boston.data)
+summary(no_2)
+
+```
+
+Based on the output, we can see that all the variables except minstay are statistically significant from zero, which means that this model it much better than the previous one.
+
+Compared to entire apt, when the room type changed to private or shared room, the price will decrease by 0.7 and 0.8
+respectively. It makes sense becasue the entire room should cost more than private room or shared room. With one unit
+increase in reviews, the price decrease by 0.0017, this number is too small so i think we can ingore the effect of reviews in this model.  One unit increase in accommodates, the price increase by 0.21. One unit increase in mininum stays, the price increase by 0.007, which is meaningful in reality becasue the minimum stays sometimes 
+keep out the customers who don't meet the minimum stay requirements. For the rating factor, 
+with each unit increase in rating, the price would decrease by 0.183.
+
+
+###(2) Consider random effects - random intercept 
+
+#### Ratings(overall_satisfaction as outcome variable)
+```{r}
+intercept_1<-lmer(overall_satisfaction ~ room_type+reviews+accommodates+minstay+price+(1|neighborhood), data=Boston.data)
+summary(intercept_1)
+```
+
+
+The above model (intercept_1) was created by using the fixed effect to ratings(overall_satisfaction), controlling for by-neighborhood variability.
+The random effects measures of how much variability in the dependent measure that is due to the random effects “neighborhood”. “Residual” which stands for the variability that’s not due to the random effects.
+From the fixed effects output, when other variables remain constant, each unit increase of accommodates, the rating (overall_satisfaction) decreases by 0.02 on average; with every unit increase of reviews, rating remains constant ; One unit increase in mininum stays, the rating decrease by 0.01, which is meaningful in reality becasue the minimum stays sometimes keep out the customers who don't meet the minimum stay requirements. For the price factor, with each unit increase in price, the rating would increase by 0.05.
+
+
+#### Price as outcome variable
+```{r}
+intercept_2 <-lmer(price ~ room_type+reviews+accommodates+minstay+overall_satisfaction+(1|neighborhood), data=Boston.data)
+summary(intercept_2)
+
+```
+
+Compared to entire apt, when the room type changed to private or shared room, the price will decrease by 0.34 and 0.57
+respectively. It makes sense becasue the entire room should cost more than private room or shared room.  One unit increase in accommodates, the price increase by 0.25. One unit increase in mininum stays, the price increase by 0.01,  For the rating factor, with each unit increase in rating, the price would increase by 0.16.
+
+### (3) Consider random effects - random slope
+
+#### Ratings(overall_satisfaction as outcome variable)
+```{r}
+slope_1<-lmer(overall_satisfaction~room_type+reviews+accommodates+minstay+price+(0+price|neighborhood), data=Boston.data)
+summary(slope_1)
+
+```
+
+
+Based on the output, when other variables remain constant, each unit increase of 
+accommodates, the rating (overall_satisfaction) decreases by 0.01 on average;  one unit increase of price 
+deviating from mean price over standard deviation weighted rating decreases by 0.06 on average. 
+Shared room has 0.03 lower in rating than that of entire room on average. Each unit increase in minstay, 
+the ratings will decrease by 0.01.
+
+
+#### Price as outcome variable
+```{r}
+slope_2<-lmer(price~room_type+reviews+accommodates+minstay+overall_satisfaction+(0+overall_satisfaction|neighborhood), data=Boston.data)
+summary(slope_2)
+```
+
+Compared to entire apt, when the room type changed to private or shared room, the price will decrease by 0.34 and 0.57
+respectively. It makes sense becasue the entire room should cost more than private room or shared room.  One unit increase in accommodates, the price increase by 0.25. One unit increase in mininum stays, the price increase by 0.01,  For the rating factor, with each unit increase in rating, the price would increase by 0.17.
+
+
+### (4) Combination - random slope and intercept
+
+I added the random slope and intercept together to see if these model would be a better fit. 
+```{r}
+con_1<-lmer(overall_satisfaction~factor(room_type)+reviews+accommodates+minstay+price+(1+price|neighborhood), data=Boston.data)
+
+
+# con_1_1<-lm(overall_satisfaction~factor(room_type)+reviews+accommodates+minstay+price, data=Boston.data[neighborhood=="Allston"])
+summary(con_1)
+
+#car::marginalModelPlot(con_1)
+```
+
+
+(1) In the first model (con_1) , (1+price|neighborhood) means that the model is expected to differ baseline-levels of price (the intercept, represented by 1) as well as differ neighborhood.
+
+For the random effect output, it represents the estimated variability in the intercept. For the fixed effect output, the coefficient of reviews and price are positive, which indicates a positive change in unit review or unit price  would 
+lead to a positve increase in the ratings.The other variables' coefficients, room tpe, accomodates and minstay shows a 
+negative change in one unit would lead to a decrease in ratings.
+
+
+```{r}
+con_2<-lmer(price~factor(room_type)+reviews+accommodates+minstay+overall_satisfaction+(1+overall_satisfaction|neighborhood), data=Boston.data)
+summary(con_2)
+
+```
+
+(2) In the second model. For the random effect output, it represents the estimated variability in the intercept. For the fixed effect output, the coefficient of accomodates, minstay and ratings (overall_satisfaction) are positive, which indicates a positive change in unit would lead to a positve increase in the price.The other variables' coefficients, room tpe and reviews shows a negative change in one unit would lead to a decrease in ratings.
+
+To sum up, the random slope and random intercept model is better compared with only random slope or only random intercept.
+
+### (5) Consider Interaction to the Model 
+```{r}
+
+inter1<-lmer(overall_satisfaction~room_type+reviews+accommodates*minstay+price+(1+accommodates|neighborhood), data=Boston.data)
+display(inter1)
+
+inter2<-lmer(price~room_type+reviews+accommodates*minstay+overall_satisfaction+(1+accommodates|neighborhood), data=Boston.data)
+display(inter2)
+
+```
+
+# H.1 ANOVA Analysis
+```{r,message=FALSE,warning=FALSE}
+
+anova(intercept_1,slope_1,con_1,no_1)
+"based on the output, con_1 is the best among the three models,becasue it has the least AIC and BIC."
+
+anova(intercept_2,slope_2,con_2,no_2)
+"based on the output, con_2 is the best among the three models,becasue it has the least AIC and BIC."
+
+anova(inter1,inter2)
+"from the output, when consider interaction, inter1 is better at the others, so inter1 is the best fit . "
+
+```
+
+# H.2 Check assumptions for multilevel model
+```{r,message=FALSE,warning=FALSE}
+
+"1. Check Linearity - residual analysis "
+plot(predict(con_1),resid(con_1))
+plot(predict(con_2),resid(con_2))
+plot(predict(inter2),resid(inter2))
+
+
+# con_1,con_2 and inter1 residual plot is not normal pattern, so i reject the inter1 model, and use inter 2 instead
+
+plot(resid(inter2))
+
+"2.Check Homogeneity of Variance - ANOVA"
+anova(con_1)
+anova(con_2)
+anova(inter2)
+
+"Since the all the p values are greater than 0.05, we can say that the variance of the residuals 
+is equal and therefore the assumption of homoscedasticity is met."
+
+"3. Check if the residuals of the model are normally distributed."
+s1=rstudent(con_1)
+qqnorm(s1)
+
+s2=rstudent(con_2)
+qqnorm(s2)
+
+s3=rstudent(inter2)
+qqnorm(s3)
+
+```
+From the plot we can see that first model (con_1) model, data distribution is not linear, so it doesn't meet my 
+model selection critia, so ratings as outcome variable is not suitable for building the model in general. 
+The second one and the last one is good, so i will continue my multilevel model analysis
+based on the last two models.
+
+```{r}
+
+#Binned plot for random intercept and random slope - price as outcome variable
+binnedplot(fitted(con_2),residuals(con_2, type="response"))
+
+# Binned plot for random intercept and random slope with interactions - price as outcome variable
+binnedplot(fitted(inter2),residuals(inter2, type="response"))
+
+
+```
+
+# I. Model Improvement 
+
+I improved the model (ratings as outcome variable) by adding a new column according to the ratings data - form a multilevel logistic model: 
+```{r}
+binarydata<-function(data){ result=data
+for (row in 1:nrow(result)){
+for (n in names(result)[6]){ if (result[row,n]>=4.5){
+result$binarydata[row] = 1 }else{
+result$binarydata[row] = 0 }
+} }
+return(result) 
+}
+
+improv_data<-binarydata(Boston.data)
+
+ggplot(improv_data)+aes(x=room_type,y=accommodates)+ geom_jitter()+facet_grid(.~binarydata)+ scale_fill_manual(values=c("blue","red"))+ylab("")+xlab("")
+
+# creating logistic model 
+log1<-glm(binarydata~room_type+reviews+accommodates+minstay+price, family = binomial, data=improv_data)
+display(log1)
+
+# fit multilevel logistic model 
+ggplot(data=improv_data, aes(x=binarydata))+geom_histogram()+ ggtitle("Satisfaction")+facet_wrap(~neighborhood)
+
+# Adding interaction
+log2<-lmer(binarydata~room_type+reviews+accommodates*price+minstay+(1+accommodates|neighborhood), data=improv_data)
+binnedplot(fitted(log2),residuals(log2, type="response"))
+```
+
+
+# J. Conclusion
+
+The goal of this project is to explore factors that may have impact on ratings or price. After EDA and multilevel model
+building process, i think ratings as outcome is not suitable for this project for fitting the multilevel model. So i focus more on the price as outcome factors, i found out that number of reviews, ratings , accomodates, neighborhood and
+room type are factors that may affact the price. Accomodates and ratings have positive effect on the price, other variables have negative effect. Among all the variables, room type has the most significant effect on the price on Airbnb because it would cost a lot more when it comes to entire house/ apt than shared room or private room. 
+
+Although ratings as outcome doesn't fit my multilevel model well, but i did some improvement on the model (refer the model improvement part) and i did some useful points during the EDA process. Price, accomodates and neighborhood are 
+the major factors that may influence the ratings on Airbnb. These all make sense since the neighborhood is related to 
+crime rate in the area, properties in a nice place tend to have more high ratings. I think these are all useful points 
+for Airbnb users or owners to know about. 
+
+# K. Future Implication
+
+I will do further research and study for the categorical multilevel model building to improve the ratings model from this project. I learnt about from doing this project and it also help me get to know better about Airbnb and the whole industry. 
+I think for users and property owners, these analysis are useful and important to know as a reference. For my future exploration of this dataset, I would divide the dataset into training and testing, to better test whether the regressions and models. 
+
+# Appendix
+
+### Summary of Boston data
+```{r}
+summary(Boston.data)
+```
+
+### (1) Density Plot
+```{r}
+
+ggplot(data=Boston.data, aes(x=reviews, fill=neighborhood))+geom_density()+ ggtitle(" Reviews Density Plot by Neighborhoods")
+
+
+
+ggplot(data=Boston.data, aes(x=overall_satisfaction, fill=neighborhood))+geom_density()+ ggtitle(" Ratings Density Plot by Neighborhoods")
+
+
+```
+we can see that the distribution of ratings and number of reviews are different between neighborhoods.
+
+
+
+###(2) relationship between accomodates and room type
+
+
+```{r, echo=FALSE}
+ggplot(data=Boston.data, aes(x=accommodates, fill=room_type))+geom_bar(position = "fill")+ ggtitle("Accommodates and Room Type")
+```
+
+
+
+
+###(3) relationship between mininum stay dates and room type
+
+```{r, echo=FALSE}
+ggplot(data=Boston.data, aes(x=minstay, fill=room_type))+geom_bar(position = "fill")+ ggtitle("Minstays and Room Type")
+```
+
+
+
+###(4) relationship between prices per night versus room type
+
+```{r, echo=FALSE}
+ggplot(data=Boston.data, aes(x=price, fill=room_type))+geom_histogram()+ ggtitle("Price and Room Type")
+```
+
+
+
+### (5) Plot for Rating and Price
+```{r}
+
+ ggplot(data=Boston.data, aes(x=price, y=overall_satisfaction, group=neighborhood))+ geom_smooth(method = "lm")+ggtitle(" Rating and Price")
+```
+
+###(6)
+```{r}
+ggplot(data = Boston.data) +
+  aes(x = overall_satisfaction, y = reviews) +
+  geom_point(color = '#0c4c8a') +
+  labs(title = 'Relationship - reviews vs. overall satisfaction',
+    x = 'Overall Satisfaction ',
+    y = 'Number of Reviews') +
+  theme_minimal()
+
+```
+
+
+###(7)Explore relationship between ratings and accommodates
+```{r, echo=FALSE}
+ggplot(data = Boston.data, aes(x = accommodates, y = overall_satisfaction)) + geom_smooth(method="lm", size=1.5)
+```
+
+#### I tried the plot with geom_point and geom_hex, they are look pretty weird and doesn't reflect what I was looking for. Since my focuses are what kind of relationship (positive or negative or no relationship) between the two variables, so i will just use geom_sooth line this this case. 
+
+As we can see from the graph, there is a moderate positive relationship betwwen the ratings and the accomodates
+
+
+
+
+###(8) Explore relationship between ratings and minstay
+```{r, echo=FALSE}
+ggplot(data = Boston.data, aes(x = minstay, y = overall_satisfaction)) + geom_smooth(method="lm", size=1.5)
+```
+
+As we can see from the graph, there is a negative relationship betwwen the ratings and the minimum stays, it makes sense becasue the minimum stays will block other cumstomers (who want to stay less than the minimum nights) from choosing the property.
